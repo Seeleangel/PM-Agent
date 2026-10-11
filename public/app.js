@@ -2,6 +2,7 @@ const appBasePath = new URL(".", import.meta.url).pathname.replace(/\/$/, "");
 let deploymentFeatures = { lark: true, plugins: true };
 const $ = (selector) => document.querySelector(selector);
 const elements = {
+  guestButton: $("#guest-button"), guestNotice: $("#guest-notice"), guestLogin: $("#guest-login-button"),
   authScreen: $("#auth-screen"), appShell: $("#app-shell"), authForm: $("#auth-form"), authError: $("#auth-error"),
   loginTab: $("#login-tab"), registerTab: $("#register-tab"), displayField: $("#display-name-field"), displayName: $("#display-name"),
   username: $("#username"), password: $("#password"), authSubmit: $("#auth-submit"), authFootnote: $("#auth-footnote"),
@@ -73,11 +74,13 @@ let dragDepth = 0;
 let latestRuntime = {};
 let interruptPending = false;
 let renderedConversationId = null;
+const isGuest = () => user?.role === "guest";
 
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const MAX_ATTACHMENTS = 5;
 
 async function api(url, options = {}) {
+  if (isGuest() && options.method && options.method !== "GET" && !url.startsWith("/api/auth/")) throw new Error("游客只能浏览演示界面，请登录获授权账号后使用。");
   const headers = { ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) };
   if (options.method && options.method !== "GET" && csrfToken) headers["X-CSRF-Token"] = csrfToken;
   const response = await fetch(`${appBasePath}${url}`, { ...options, headers });
@@ -120,6 +123,13 @@ function showAuth() {
   elements.appShell.hidden = true;
   elements.managementScreen.hidden = true;
   elements.larkScreen.hidden = true;
+  user = null;
+  csrfToken = "";
+  selectedId = null;
+  conversations = [];
+  modelProfiles = [];
+  messageCache.clear();
+  elements.sessionSearch.value = "";
 }
 
 function showApp() {
@@ -128,9 +138,18 @@ function showApp() {
   elements.managementScreen.hidden = true;
   elements.larkScreen.hidden = true;
   elements.accountName.textContent = user.displayName;
-  elements.accountRole.textContent = user.role === "admin" ? "管理员" : `@${user.username}`;
+  elements.accountRole.textContent = isGuest() ? "演示内容 · 只读" : user.role === "admin" ? "管理员" : `@${user.username}`;
   elements.accountAvatar.textContent = user.displayName.slice(0, 1).toUpperCase();
   elements.manage.hidden = user.role !== "admin";
+  elements.guestNotice.hidden = !isGuest();
+  elements.newButton.disabled = isGuest();
+  elements.newButton.title = isGuest() ? "游客不能创建会话" : "";
+  elements.newForm.hidden = true;
+  elements.accountSecurityButton.hidden = isGuest();
+  elements.larkButton.hidden = isGuest() || !deploymentFeatures.lark;
+  elements.larkRoute.hidden = isGuest() || !deploymentFeatures.lark;
+  elements.logout.textContent = isGuest() ? "退出游客浏览" : "退出登录";
+  elements.message.placeholder = isGuest() ? "游客模式仅供浏览，登录获授权账号后开始工作" : "给 Agent 发消息… 输入 / 查看命令";
 }
 
 function renderIdentityBadge(element, ready) {
@@ -433,7 +452,7 @@ async function selectConversation(id) {
   deferredMessageUpdates.clear();
   eventSource?.close();
   eventSource = null;
-  localStorage.setItem("agent-selected-conversation", id);
+  localStorage.setItem(isGuest() ? "agent-guest-conversation" : "agent-selected-conversation", id);
   renderConversationLists();
   closeDrawers();
   const data = await api(`/api/conversations/${id}`);
@@ -751,7 +770,7 @@ function renderState(data) {
   if (!data.conversation) return renderNoConversation();
   const conversation = data.conversation;
   elements.title.textContent = conversation.title;
-  elements.meta.textContent = `${conversation.ownerName} 创建 · ${timeLabel(conversation.updatedAt)} 更新`;
+  elements.meta.textContent = isGuest() ? "预置演示会话 · 不会调用模型或展示真实数据" : `${conversation.ownerName} 创建 · ${timeLabel(conversation.updatedAt)} 更新`;
   elements.visibility.textContent = conversation.visibility === "team" ? "团队共享" : "仅自己";
   elements.visibility.dataset.scope = conversation.visibility;
   elements.larkRoute.textContent = conversation.visibility === "team" ? "飞书：管理员" : "飞书：所有者";
@@ -763,15 +782,15 @@ function renderState(data) {
   elements.sessionTokenUsage.title = data.usage?.measuredRequests
     ? `本会话累计，包含缓存 · 输入 ${tokenLabel(data.usage.inputTokens)} · 输出 ${tokenLabel(data.usage.outputTokens)} · 缓存读取 ${tokenLabel(data.usage.cacheReadInputTokens)} · 缓存写入 ${tokenLabel(data.usage.cacheCreationInputTokens)}`
     : "";
-  const editable = conversation.ownerId === user.id || user.role === "admin";
+  const editable = !isGuest() && (conversation.ownerId === user.id || user.role === "admin");
   elements.rename.disabled = !editable;
   elements.archive.disabled = !editable;
   renderModelOptions(elements.conversationModel, conversation.modelProfileId);
   elements.conversationModel.disabled = !editable || !modelProfiles.length;
-  elements.message.disabled = false;
+  elements.message.disabled = isGuest();
   autosizeMessage();
-  elements.send.disabled = isSubmitting;
-  elements.attachmentButton.disabled = isSubmitting;
+  elements.send.disabled = isGuest() || isSubmitting;
+  elements.attachmentButton.disabled = isGuest() || isSubmitting;
   const messages = data.messages || [];
   const nextLast = messages.at(-1)?.id || null;
   const switchedConversation = renderedConversationId !== conversation.id;
@@ -796,7 +815,7 @@ function renderState(data) {
     const refreshedChoice = messages.find((message) => message.id === activeChoiceMessage.id);
     if (activeChoiceMessage.conversationId !== conversation.id || !refreshedChoice || refreshedChoice.choice?.answeredAt) closeChoiceDialog();
   }
-  if (pendingChoice && pendingChoice.id !== lastPromptedChoiceId) {
+  if (!isGuest() && pendingChoice && pendingChoice.id !== lastPromptedChoiceId) {
     lastPromptedChoiceId = pendingChoice.id;
     requestAnimationFrame(() => openChoiceDialog(pendingChoice));
   }
@@ -831,6 +850,11 @@ function renderRuntime(runtime = {}) {
   } else { elements.currentTask.className = "current-task-empty"; elements.currentTask.textContent = "暂无任务"; }
   elements.currentTask.parentElement.hidden = !runtime.current;
   renderOnlineMembers(runtime.onlineMembers || []);
+  if (isGuest()) {
+    elements.statusLabel.textContent = "演示模式 · 未运行任务";
+    elements.onlineCount.textContent = "演示";
+    elements.onlineMemberList.replaceChildren(emptyLabel("真实在线成员仅对获授权账号可见"));
+  }
 }
 
 async function interruptCurrentTask() {
@@ -946,6 +970,11 @@ function applyPatch(payload, sequenceOverride = null) {
 
 function connectEvents(generation = conversationGeneration) {
   eventSource?.close();
+  if (isGuest()) {
+    eventSource = null;
+    elements.connection.textContent = "游客演示 · 只读";
+    return;
+  }
   elements.connection.textContent = "连接中"; elements.connection.classList.remove("connected");
   const query = selectedId ? `?conversationId=${encodeURIComponent(selectedId)}` : "";
   const source = new EventSource(`${appBasePath}/api/events${query}`);
@@ -1416,6 +1445,7 @@ function selectSettingsTab(name) {
 async function initialize() {
   const data = await api("/api/bootstrap");
   if (!data.allowRegistration) elements.registerTab.hidden = true;
+  elements.guestButton.hidden = data.allowGuest !== true;
   deploymentFeatures = data.features || deploymentFeatures;
   if (!deploymentFeatures.lark) {
     document.querySelector("#lark-button").hidden = true;
@@ -1424,13 +1454,40 @@ async function initialize() {
   if (!deploymentFeatures.plugins) document.querySelector('[data-settings-tab="plugins"]').hidden = true;
   if (!data.authenticated) return showAuth();
   user = data.user; csrfToken = data.csrfToken; showApp();
-  selectedId = localStorage.getItem("agent-selected-conversation");
+  selectedId = localStorage.getItem(isGuest() ? "agent-guest-conversation" : "agent-selected-conversation");
   await Promise.all([loadConversations(), loadCapabilities(), loadModelProfiles()]);
   if (selectedId) await selectConversation(selectedId).catch(() => { selectedId = null; renderNoConversation(); });
 }
 
 elements.loginTab.addEventListener("click", () => setAuthMode("login"));
 elements.registerTab.addEventListener("click", () => setAuthMode("register"));
+elements.guestButton.addEventListener("click", async () => {
+  elements.guestButton.disabled = true;
+  elements.authError.textContent = "";
+  elements.authError.dataset.state = "";
+  try {
+    const data = await api("/api/auth/guest", { method: "POST" });
+    user = data.user;
+    csrfToken = data.csrfToken;
+    selectedId = null;
+    elements.password.value = "";
+    showApp();
+    await Promise.all([loadConversations(), loadCapabilities(), loadModelProfiles()]);
+  } catch (error) {
+    if (isGuest()) showAuth();
+    elements.authError.textContent = error.message;
+  } finally { elements.guestButton.disabled = false; }
+});
+elements.guestLogin.addEventListener("click", async () => {
+  elements.guestLogin.disabled = true;
+  try {
+    await api("/api/auth/logout", { method: "POST" });
+    showAuth();
+    setAuthMode("login");
+    elements.username.focus();
+  } catch (error) { elements.formError.textContent = error.message; }
+  finally { elements.guestLogin.disabled = false; }
+});
 elements.authForm.addEventListener("submit", async (event) => {
   event.preventDefault(); elements.authError.textContent = ""; elements.authError.dataset.state = ""; elements.authSubmit.disabled = true;
   try {

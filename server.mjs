@@ -3,6 +3,7 @@ import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Store } from "./lib/database.mjs";
+import { GuestSessions, guestConversations, guestProfiles, guestState } from "./lib/guest.mjs";
 import { newToken, normalizeUsername, validUsername } from "./lib/security.mjs";
 import { runClaude, validateModelCredential } from "./lib/agent.mjs";
 import { inspectCapabilities } from "./lib/capabilities.mjs";
@@ -100,6 +101,8 @@ const queue = [];
 const activeTasks = new Map();
 const eventClients = new Set();
 const authAttempts = new Map();
+const guestSessions = new GuestSessions();
+setInterval(() => guestSessions.cleanup(), 10 * 60_000).unref();
 
 const systemPrompt = [
   "你是供获授权成员使用的共享 Claude Code agent。",
@@ -121,7 +124,8 @@ function parseCookies(req) {
 }
 
 function authContext(req) {
-  return store.getLoginSession(parseCookies(req)[cookieName]);
+  const token = parseCookies(req)[cookieName];
+  return guestSessions.get(token) || store.getLoginSession(token);
 }
 
 function baseHeaders(extra = {}) {
@@ -176,7 +180,7 @@ function publicAttachment(attachment) {
   return { id: attachment.id, name: attachment.originalName, mimeType: attachment.mimeType, size: attachment.size, createdAt: attachment.createdAt };
 }
 
-function requireAuth(req, res, { csrf = false } = {}) {
+function requireAuth(req, res, { csrf = false, allowReadOnly = false } = {}) {
   const auth = authContext(req);
   if (!auth) {
     sendJson(res, 401, { error: "登录已失效，请重新登录。" });
@@ -184,6 +188,10 @@ function requireAuth(req, res, { csrf = false } = {}) {
   }
   if (csrf && req.headers["x-csrf-token"] !== auth.csrfToken) {
     sendJson(res, 403, { error: "安全校验失败，请刷新页面后重试。" });
+    return null;
+  }
+  if (csrf && auth.user.role === "guest" && !allowReadOnly) {
+    sendJson(res, 403, { error: "游客只能浏览演示界面，请登录获授权账号后使用。", code: "guest_read_only" });
     return null;
   }
   return auth;
@@ -542,6 +550,26 @@ const server = http.createServer(async (req, res) => {
       if (!url.pathname.startsWith(`${basePath}/`)) return sendJson(res, 404, { error: "页面不存在。" });
       url.pathname = url.pathname.slice(basePath.length);
     }
+    // An allowlist intercepts every guest API request before any live data,
+    // capabilities, files, model credentials, or execution routes are touched.
+    const guest = authContext(req);
+    if (guest?.user.role === "guest" && url.pathname.startsWith("/api/") && !["/api/bootstrap", "/api/auth/guest", "/api/auth/login", "/api/auth/register", "/api/auth/logout"].includes(url.pathname)) {
+      if (req.method === "GET") {
+        if (url.pathname === "/api/conversations") return sendJson(res, 200, { conversations: guestConversations, runtime: guestState().runtime });
+        const match = url.pathname.match(/^\/api\/conversations\/([0-9a-f-]+)$/i);
+        if (match) {
+          const state = guestState(match[1]);
+          return sendJson(res, state.conversation ? 200 : 404, state.conversation ? state : { error: "演示会话不存在。" });
+        }
+        if (url.pathname === "/api/model-profiles") return sendJson(res, 200, { profiles: guestProfiles });
+        if (url.pathname === "/api/capabilities") return sendJson(res, 200, { commands: [], mcp: [], subagents: [], readOnly: true });
+        if (url.pathname === "/api/events") {
+          res.writeHead(200, baseHeaders({ "Content-Type": "text/event-stream; charset=utf-8" }));
+          return res.end(`data: ${JSON.stringify(guestState(url.searchParams.get("conversationId")))}\n\n`);
+        }
+      }
+      return sendJson(res, 403, { error: "游客只能浏览演示界面，请登录获授权账号后使用。", code: "guest_read_only" });
+    }
     if ((!features.lark && url.pathname.startsWith("/api/lark/")) || (!features.plugins && (url.pathname.startsWith("/api/admin/plugins") || url.pathname.startsWith("/api/admin/plugin-marketplaces")))) {
       return sendJson(res, 403, { error: "此功能暂未启用。" });
     }
@@ -554,8 +582,20 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "GET" && url.pathname === "/api/bootstrap") {
       const auth = authContext(req);
-      if (auth) refreshSecureSessionCookie(req, res);
-      return sendJson(res, 200, { authenticated: Boolean(auth), user: auth?.user || null, csrfToken: auth?.csrfToken || null, allowRegistration, features });
+      if (auth && auth.user.role !== "guest") refreshSecureSessionCookie(req, res);
+      return sendJson(res, 200, { authenticated: Boolean(auth), user: auth?.user || null, csrfToken: auth?.csrfToken || null, allowRegistration, allowGuest: true, features });
+    }
+    if (req.method === "POST" && url.pathname === "/api/auth/guest") {
+      if (!sameOrigin(req)) return sendJson(res, 403, { error: "请求来源无效。" });
+      if (rateLimited(req)) return sendJson(res, 429, { error: "尝试次数过多，请十分钟后再试。" });
+      const current = authContext(req);
+      if (current && current.user.role !== "guest") return sendJson(res, 409, { error: "请先退出当前账号，再进入游客浏览。" });
+      guestSessions.delete(parseCookies(req)[cookieName]);
+      const session = guestSessions.create();
+      if (!session) return sendJson(res, 429, { error: "当前浏览人数较多，请稍后再试。" });
+      const { token, ...auth } = session;
+      res.setHeader("Set-Cookie", `${cookieName}=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=${cookiePath}; Max-Age=7200${secureCookies ? "; Secure" : ""}`);
+      return sendJson(res, 200, auth);
     }
     if (req.method === "POST" && ["/api/auth/login", "/api/auth/register"].includes(url.pathname)) {
       if (!sameOrigin(req)) return sendJson(res, 403, { error: "请求来源无效。" });
@@ -578,12 +618,14 @@ const server = http.createServer(async (req, res) => {
         // pending, rejected, disabled, or simply has a wrong password.
         return sendJson(res, 401, { error: "用户名或密码不正确。" });
       }
+      guestSessions.delete(parseCookies(req)[cookieName]);
       return sendJson(res, 200, createSession(res, user));
     }
 
     if (req.method === "POST" && url.pathname === "/api/auth/logout") {
-      const auth = requireAuth(req, res, { csrf: true });
+      const auth = requireAuth(req, res, { csrf: true, allowReadOnly: true });
       if (!auth) return;
+      guestSessions.delete(parseCookies(req)[cookieName]);
       store.deleteLoginSession(parseCookies(req)[cookieName]);
       return sendJson(res, 200, { ok: true }, { "Set-Cookie": `${cookieName}=; HttpOnly; SameSite=Strict; Path=${cookiePath}; Max-Age=0${secureCookies ? "; Secure" : ""}` });
     }

@@ -71,6 +71,14 @@ input::placeholder, textarea::placeholder { color: #707d8e; }
 .primary-button.small { min-height: 34px; padding: 7px 12px; font-size: 13px; }
 .form-error { min-height: 1.4em; margin: 0; color: var(--red); font-size: 13px; }
 .auth-footnote { margin: 26px 0 0; color: var(--muted); font-size: 12px; }
+.guest-entry { display: grid; gap: 8px; margin-top: 16px; padding-top: 20px; border-top: 1px solid var(--rule); }
+.guest-entry .quiet-button { min-height: 44px; width: 100%; }
+.guest-entry p { margin: 0; color: var(--muted); font-size: 13px; }
+.guest-notice { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; margin-bottom: 12px; border-radius: var(--radius-md); background: var(--cobalt-soft); color: var(--cobalt-deep); }
+.guest-notice strong { font-size: 13px; }
+.guest-notice p { margin: 3px 0 0; max-width: 65ch; font-size: 12px; }
+.guest-notice button { flex-shrink: 0; }
+@media (max-width: 600px) { .guest-notice { align-items: flex-start; gap: 8px; padding: 10px; } .guest-notice .quiet-button { padding-inline: 9px; } }
 
 .app-shell { height: 100dvh; min-height: 100dvh; display: grid; grid-template-columns: 248px minmax(0, 1fr) 232px; overflow: hidden; background: var(--surface); }
 .session-panel, .status-panel { position: sticky; top: 0; height: 100dvh; }

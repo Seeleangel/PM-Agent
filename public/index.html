@@ -45,6 +45,7 @@ FORM: 去除仪表盘式状态装饰，保留 Claude Code 工作台的真实操�
           <button id="auth-submit" class="primary-button" type="submit">进入工作台</button>
           <p id="auth-error" class="form-error" role="alert"></p>
         </form>
+        <div class="guest-entry"><button id="guest-button" class="quiet-button" type="button" aria-describedby="guest-help">游客登录 · 浏览界面</button><p id="guest-help">无需账号。仅查看演示内容，不能发送任务或使用工具。</p></div>
         <p id="auth-footnote" class="auth-footnote">账号仅供管理员授权的成员使用。不要在会话中提交密码、令牌或不应共享的资料。</p>
       </section>
     </main>
@@ -108,6 +109,7 @@ FORM: 去除仪表盘式状态装饰，保留 Claude Code 工作台的真实操�
         </section>
 
         <form id="composer" class="composer">
+          <div id="guest-notice" class="guest-notice" role="status" hidden><div><strong>游客浏览 · 只读</strong><p>当前为演示内容。登录获授权账号后，才能发送任务、上传附件和使用工具。</p></div><button id="guest-login-button" class="quiet-button" type="button">账号登录</button></div>
           <label class="sr-only" for="message-input">发送给 Agent</label>
           <input id="attachment-input" type="file" multiple hidden />
           <div id="command-menu" class="command-menu" role="listbox" aria-label="可用斜杠命令" hidden>
@@ -291,6 +293,6 @@ FORM: 去除仪表盘式状态装饰，保留 Claude Code 工作台的真实操�
         <footer><button id="logout-other-devices" class="text-button" type="button">登出其他设备</button><button class="primary-button small" type="submit">修改密码</button></footer>
       </form>
     </dialog>
-    <script src="__APP_BASE_PATH__/app.js?v=20261011-1" type="module"></script>
+    <script src="__APP_BASE_PATH__/app.js?v=20261011-guest" type="module"></script>
   </body>
 </html>
