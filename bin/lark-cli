@@ -1,0 +1,28 @@
+#!/bin/sh
+set -eu
+
+case "${1:-}" in
+  auth|config|profile|update)
+    printf '%s\n' '{"ok":false,"error":{"type":"command_denied","message":"身份管理命令只能在网页的飞书授权中心执行。"}}' >&2
+    exit 2
+    ;;
+esac
+
+case "${AGENT_LARK_HOME:-}" in
+  /srv/claude-agent/lark/team-admin|/srv/claude-agent/lark/users/*) ;;
+  *)
+    printf '%s\n' '{"ok":false,"error":{"type":"authorization","message":"当前会话没有有效的飞书身份上下文，请先在网页完成个人授权。"}}' >&2
+    exit 2
+    ;;
+esac
+
+audit_file=/srv/claude-agent/data/lark-cli-audit.tsv
+timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$timestamp" "${AGENT_LARK_MODE:-unknown}" "${AGENT_WEB_USER:-unknown}" "${AGENT_CONVERSATION_ID:-unknown}" "${1:-}" "${2:-}" >> "$audit_file"
+chmod 600 "$audit_file" 2>/dev/null || true
+
+exec env \
+  HOME="$AGENT_LARK_HOME" \
+  LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1 \
+  LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1 \
+  /usr/local/bin/lark-cli "$@"

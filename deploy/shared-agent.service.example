@@ -1,0 +1,35 @@
+[Unit]
+Description=PM Agent Workbench
+After=network.target
+
+[Service]
+Type=simple
+User=shared-agent
+Group=shared-agent
+WorkingDirectory=/var/lib/shared-agent/workspace
+EnvironmentFile=/etc/shared-agent/server.env
+ExecStart=/opt/shared-agent/runtime/node /opt/shared-agent/current/server.mjs
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/shared-agent
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+Delegate=true
+TasksMax=128
+MemoryHigh=1500M
+MemoryMax=2300M
+MemorySwapMax=512M
+CPUQuota=200%
+KillMode=control-group
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

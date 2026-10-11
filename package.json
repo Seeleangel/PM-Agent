@@ -1,0 +1,12 @@
+{
+  "name": "claude-agent-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "check": "node --check server.mjs && node --check mcp-server.mjs && node --check lib/security.mjs && node --check lib/database.mjs && node --check lib/agent.mjs && node --check lib/capabilities.mjs && node --check lib/admin.mjs && node --check lib/lark.mjs && node --check public/app.js",
+    "test": "node --test tests/*.test.mjs",
+    "verify:production": "node tests/production-auth-smoke.mjs"
+  }
+}

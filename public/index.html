@@ -1,0 +1,296 @@
+<!--
+THESIS: 一眼找到会话、读懂回复并继续发问；所有高级能力保留在需要它的位置。
+OWN-WORLD: 参考 pi-web 的安静三栏工作区，自有的浅色纸面、细分隔线和克制蓝色操作信号。
+STORY: 左侧定位会话，中央专注对话与输入，右侧查看在线成员和运行状态。
+FIRST VIEWPORT: 窄会话栏、居中的可读正文、轻量在线栏、底部一体式输入框。
+FORM: 去除仪表盘式状态装饰，保留 Claude Code 工作台的真实操作入口。
+-->
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f4f6f8" />
+    <title>PM Agent</title>
+    <link rel="stylesheet" href="__APP_BASE_PATH__/styles.css?v=20261011-1" />
+  </head>
+  <body>
+    <a class="skip-link" href="#composer">跳到发送区</a>
+
+    <main id="auth-screen" class="auth-screen">
+      <section class="auth-brand" aria-label="产品介绍">
+        <div class="product-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+        <p class="product-kicker">TEAM CLAUDE WORKBENCH</p>
+        <h1>PM Agent</h1>
+        <p>团队共享 Claude Code 工作区。会话、工具和协作，都在这里。</p>
+      </section>
+      <section class="auth-station" aria-label="账号入口">
+        <div class="auth-tabs" role="tablist" aria-label="登录或注册">
+          <button id="login-tab" type="button" role="tab" aria-selected="true">登录</button>
+          <button id="register-tab" type="button" role="tab" aria-selected="false">注册</button>
+        </div>
+        <form id="auth-form" class="auth-form">
+          <div id="display-name-field" hidden>
+            <label for="display-name">显示名称</label>
+            <input id="display-name" autocomplete="name" maxlength="40" placeholder="同事看到的名字" />
+          </div>
+          <div>
+            <label for="username">用户名</label>
+            <input id="username" autocomplete="username" maxlength="32" placeholder="小写字母或数字" required />
+          </div>
+          <div>
+            <label for="password">密码</label>
+            <input id="password" type="password" autocomplete="current-password" minlength="10" placeholder="至少 10 个字符" required />
+          </div>
+          <button id="auth-submit" class="primary-button" type="submit">进入工作台</button>
+          <p id="auth-error" class="form-error" role="alert"></p>
+        </form>
+        <p id="auth-footnote" class="auth-footnote">账号仅供管理员授权的成员使用。不要在会话中提交密码、令牌或不应共享的资料。</p>
+      </section>
+    </main>
+
+    <div id="app-shell" class="app-shell" hidden>
+      <aside id="session-panel" class="session-panel" aria-label="会话列表">
+        <header class="rail-head">
+          <div class="rail-brand"><div class="product-mark compact" aria-hidden="true"><span></span><span></span><span></span></div><strong>PM Agent</strong></div>
+          <button id="close-sessions" class="icon-button mobile-only" type="button" aria-label="关闭会话列表">×</button>
+        </header>
+        <button id="new-conversation-button" class="new-session-button" type="button"><span>＋</span>新建会话</button>
+        <form id="new-conversation-form" class="new-session-form" hidden>
+          <label for="new-title">会话名称</label>
+          <input id="new-title" maxlength="80" value="新会话" />
+          <label for="new-model">模型配置</label>
+          <select id="new-model" name="modelProfileId"></select>
+          <fieldset>
+            <legend>可见范围</legend>
+            <label><input type="radio" name="visibility" value="private" checked /> 仅自己</label>
+            <label><input type="radio" name="visibility" value="team" /> 团队共享</label>
+          </fieldset>
+          <div class="inline-actions"><button class="primary-button small" type="submit">创建</button><button id="cancel-new" class="text-button" type="button">取消</button></div>
+        </form>
+        <label class="session-search-label" for="session-search"><span class="sr-only">搜索会话</span><input id="session-search" type="search" placeholder="搜索会话" autocomplete="off" aria-keyshortcuts="Control+k Meta+k" /><kbd>Ctrl K</kbd></label>
+        <nav class="conversation-nav" aria-label="可用会话">
+          <section><h2>我的会话</h2><div id="private-conversations" class="conversation-list"></div></section>
+          <section><h2>团队会话</h2><div id="team-conversations" class="conversation-list"></div></section>
+        </nav>
+        <footer class="account-strip">
+          <div class="avatar" id="account-avatar" aria-hidden="true">W</div>
+          <div><strong id="account-name">未登录</strong><span id="account-role">团队成员</span></div>
+          <details class="account-menu"><summary aria-label="账号菜单" title="账号菜单">···</summary><div class="account-actions"><button id="lark-button" class="text-button" type="button">飞书授权</button><button id="manage-button" class="text-button" type="button" hidden>管理中心</button><button id="account-security-button" class="text-button" type="button">账号安全</button><button id="logout-button" class="text-button" type="button">退出登录</button></div></details>
+        </footer>
+      </aside>
+
+      <main class="workbench">
+        <header class="workbench-head">
+          <button id="open-sessions" class="icon-button mobile-only" type="button" aria-label="打开会话列表">☰</button>
+          <div class="conversation-heading">
+            <div class="title-line"><h1 id="conversation-title">选择一个会话</h1><span id="visibility-badge" class="visibility-badge">未选择</span><span id="lark-route-badge" class="visibility-badge lark-route-badge">飞书：未选择</span></div>
+            <p id="conversation-meta">创建会话后开始工作</p>
+          </div>
+          <div class="header-actions">
+            <details class="conversation-actions"><summary class="icon-button" aria-label="会话操作" title="会话操作">···</summary><div class="conversation-action-list"><div id="session-token-usage" class="session-usage-action" title="本会话累计用量，包含缓存；输入、输出、缓存读取和缓存写入明细">本会话用量 · 待记录</div><button id="rename-button" type="button" disabled>重命名</button><button id="archive-button" class="danger" type="button" disabled>归档会话</button></div></details>
+            <button id="open-capabilities" class="icon-button mobile-only" type="button" aria-label="打开状态与在线成员">◉</button>
+          </div>
+        </header>
+
+        <section id="message-list" class="activity-ledger" aria-label="对话工作记录" aria-live="polite">
+          <div class="empty-state"><div class="empty-index">00</div><div><h2>还没有选中会话</h2><p>从左侧打开既有会话，或新建一条私有/团队会话。</p></div></div>
+        </section>
+
+        <section id="choice-panel" class="choice-panel" aria-labelledby="choice-dialog-title" aria-live="polite" hidden>
+          <form id="choice-form" class="choice-form">
+            <header><div><p class="section-kicker">需要你的决定</p><h2 id="choice-dialog-title">请选择下一步</h2></div><button id="cancel-choice" class="icon-button" type="button" aria-label="稍后回答">×</button></header>
+            <p id="choice-question" class="choice-question"></p>
+            <div id="choice-options" class="choice-options" role="group" aria-label="回答选项"></div>
+            <p id="choice-error" class="form-error" role="alert"></p>
+            <footer><button class="text-button" type="button" id="defer-choice">稍后回答</button><button class="primary-button small" type="submit">提交回答</button></footer>
+          </form>
+        </section>
+
+        <form id="composer" class="composer">
+          <label class="sr-only" for="message-input">发送给 Agent</label>
+          <input id="attachment-input" type="file" multiple hidden />
+          <div id="command-menu" class="command-menu" role="listbox" aria-label="可用斜杠命令" hidden>
+            <div class="command-menu-head"><strong>可用命令</strong><span>↑↓ 选择 · Tab 补全 · Esc 关闭</span></div>
+            <div id="command-options" class="command-options"></div>
+          </div>
+          <div id="attachment-tray" class="attachment-tray" aria-label="待发送附件" aria-live="polite" hidden></div>
+          <div class="composer-grid">
+            <div id="message-drop-zone" class="message-drop-zone" data-drop-active="false">
+              <textarea id="message-input" maxlength="20000" rows="1" placeholder="给 Agent 发消息… 输入 / 查看命令" role="combobox" aria-autocomplete="list" aria-controls="command-menu" aria-expanded="false" disabled></textarea>
+              <div id="drop-hint" class="drop-hint" role="status" aria-live="polite" hidden>
+                <span aria-hidden="true">↓</span>
+                <strong>松开即可添加文件</strong>
+                <small>每轮最多 5 个，单个不超过 25 MB</small>
+              </div>
+            </div>
+            <div class="composer-foot"><div class="composer-context"><button id="attachment-button" class="attach-control" type="button" title="添加文件，也可拖拽或粘贴" disabled>＋ <span>附件</span></button><select id="conversation-model" class="model-selector" aria-label="当前会话模型" disabled></select></div><div class="composer-tools"><button id="interrupt-button" class="interrupt-button" type="button" aria-keyshortcuts="Escape" hidden><span id="interrupt-label">停止运行</span><kbd>Esc</kbd></button><button id="send-button" class="primary-button" type="submit" aria-keyshortcuts="Enter" disabled><span>发送</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h14M13 6l6 6-6 6" /></svg></button></div></div>
+          </div>
+          <p id="form-error" class="form-error" role="alert"></p>
+        </form>
+      </main>
+
+      <aside id="capability-panel" class="status-panel" aria-label="Agent 状态与在线成员">
+        <span id="connection-state" class="connection-state sr-only" role="status">连接中</span>
+        <section class="presence-section"><div class="presence-head"><h2>在线成员</h2><div class="presence-heading-actions"><span id="online-count">0 人</span><button id="close-capabilities" class="icon-button mobile-only" type="button" aria-label="关闭状态栏">×</button></div></div><div id="online-member-list" class="presence-list" aria-live="polite"><p class="presence-empty">正在连接…</p></div></section>
+        <section class="runtime-section" aria-label="Agent 运行状态"><div id="agent-status" class="agent-status" data-state="idle"><span class="status-indicator" aria-hidden="true"></span><p id="status-label">Agent 空闲</p></div><div class="runtime-readout"><div><span>运行</span><strong id="running-count">0</strong></div><div><span>排队</span><strong id="queue-count">0</strong></div></div><div class="current-task"><p id="current-task-label" class="section-kicker">当前任务</p><div id="current-task-content" class="current-task-empty">暂无任务</div></div></section>
+      </aside>
+      <button id="drawer-scrim" class="drawer-scrim" type="button" aria-label="关闭侧栏" hidden></button>
+    </div>
+
+    <section id="management-screen" class="management-screen" hidden>
+      <header class="management-topbar">
+        <div class="rail-brand"><div class="product-mark compact" aria-hidden="true"><span></span><span></span><span></span></div><strong>Agent 管理中心</strong></div>
+        <button id="close-management" class="quiet-button" type="button">返回会话</button>
+      </header>
+      <div class="management-layout">
+        <nav class="settings-nav" aria-label="管理中心栏目">
+          <p>管理</p>
+          <button type="button" data-settings-tab="accounts"><span>账号</span></button>
+          <button type="button" data-settings-tab="models" aria-current="page"><span>模型</span></button>
+          <button type="button" data-settings-tab="memory"><span>记忆</span></button>
+          <button type="button" data-settings-tab="skills"><span>Skills</span></button>
+          <button type="button" data-settings-tab="plugins"><span>Plugins</span></button>
+          <button type="button" data-settings-tab="runtime"><span>运行与权限</span></button>
+        </nav>
+
+        <main class="settings-main">
+          <section class="settings-panel" data-settings-panel="accounts" hidden>
+            <header class="settings-heading"><div><p class="section-kicker">MEMBERS &amp; ACCESS</p><h1>账号管理</h1><p>审批新的注册申请，维护已注册成员的管理员权限和账号状态。</p></div><button id="refresh-accounts" class="quiet-button" type="button">刷新</button></header>
+            <section class="account-admin-section">
+              <div class="settings-subhead"><div><h2>待审批</h2><p>审批通过后，成员才能使用申请时设置的密码登录。</p></div><span id="pending-account-count" class="count-badge warning">0 个</span></div>
+              <div id="pending-account-list" class="settings-list" aria-live="polite"></div>
+            </section>
+            <section class="account-admin-section">
+              <div class="settings-subhead"><div><h2>已注册账号</h2><p>注销会撤销该账号的全部登录状态，但保留历史会话和审计记录。</p></div><span id="account-count" class="count-badge">0 个</span></div>
+              <p id="accounts-status" class="inline-status" role="status"></p>
+              <div id="managed-account-list" class="settings-list" aria-live="polite"></div>
+            </section>
+            <p class="settings-warning"><strong>权限提醒：</strong>新增管理员可以管理模型、记忆、Skill、Plugin 和账号，但不会继承团队飞书身份。团队会话仍固定使用受保护账号的飞书授权。</p>
+          </section>
+
+          <section class="settings-panel" data-settings-panel="models">
+            <header class="settings-heading"><div><p class="section-kicker">MODEL PROFILES</p><h1>模型配置</h1><p>集中管理供应商与会话模型。</p></div><span id="model-count" class="count-badge">0 个</span></header>
+            <details class="settings-create">
+              <summary>添加模型配置</summary>
+              <form id="model-create-form" class="settings-form">
+                <div class="field-grid"><label>显示名称<input name="name" maxlength="64" placeholder="例如 ds-reasoner" required /></label><label>接口地址（Anthropic 兼容）<input name="baseUrl" type="url" placeholder="https://api.example.com" required /></label></div>
+                <div class="field-grid"><label>主模型标识<input name="model" maxlength="120" placeholder="模型 ID" required /></label><label>轻量模型标识<input name="smallModel" maxlength="120" placeholder="留空则同主模型" /></label></div>
+                <label>API 密钥<input name="authToken" type="password" minlength="8" autocomplete="new-password" placeholder="只保存到服务器，不会回显" required /></label>
+                <label class="check-line"><input name="isDefault" type="checkbox" />设为新会话默认模型</label>
+                <div class="form-actions"><button class="primary-button small" type="submit">保存配置</button><p id="model-create-status" class="inline-status" role="status"></p></div>
+              </form>
+            </details>
+            <form id="model-edit-form" class="settings-form settings-editor" hidden>
+              <input name="id" type="hidden" />
+              <div class="editor-heading"><strong>编辑模型配置</strong><button id="cancel-model-edit" class="text-button" type="button">取消</button></div>
+              <div class="field-grid"><label>显示名称<input name="name" maxlength="64" required /></label><label>接口地址（Anthropic 兼容）<input name="baseUrl" type="url" required /></label></div>
+              <div class="field-grid"><label>主模型标识<input name="model" maxlength="120" required /></label><label>轻量模型标识<input name="smallModel" maxlength="120" required /></label></div>
+              <label>替换 API 密钥<input name="authToken" type="password" autocomplete="new-password" placeholder="留空表示保持现有密钥" /></label>
+              <div class="form-actions"><button class="primary-button small" type="submit">保存修改</button><p id="model-edit-status" class="inline-status" role="status"></p></div>
+            </form>
+            <div id="model-profile-list" class="settings-list" aria-live="polite"></div>
+          </section>
+
+          <section class="settings-panel" data-settings-panel="memory" hidden>
+            <header class="settings-heading"><div><p class="section-kicker">MEMORY &amp; INSTRUCTIONS</p><h1>记忆与 CLAUDE.md</h1><p>维护共享指令与长期记忆。</p></div><span id="memory-state-badge" class="count-badge">读取中</span></header>
+            <dl class="memory-facts">
+              <div><dt>项目指令</dt><dd><strong id="claude-md-path">载入中</strong><span>项目根文件，压缩上下文后仍会重新加载</span></dd></div>
+              <div><dt>自动记忆</dt><dd><strong id="memory-directory">载入中</strong><span id="memory-budget">短索引 + 按需主题文件</span></dd></div>
+              <div><dt>共享范围</dt><dd><strong>服务器所有会话</strong><span>私有会话内容默认禁止写入共享记忆</span></dd></div>
+            </dl>
+            <form id="memory-form" class="memory-editor-form">
+              <div class="memory-editor-head">
+                <div><strong>CLAUDE.md</strong><span id="claude-md-updated">尚未读取</span></div>
+                <div class="editor-view-switch" role="group" aria-label="编辑器视图"><button id="memory-edit-mode" type="button" aria-pressed="true">编辑</button><button id="memory-preview-mode" type="button" aria-pressed="false">预览</button></div>
+              </div>
+              <label class="sr-only" for="claude-md-editor">CLAUDE.md 内容</label>
+              <textarea id="claude-md-editor" name="content" rows="24" maxlength="50000" spellcheck="false" aria-describedby="memory-editor-help"></textarea>
+              <div id="claude-md-preview" class="memory-preview rich-response" hidden aria-label="CLAUDE.md 预览"></div>
+              <div class="memory-editor-foot">
+                <span id="memory-editor-help"><span id="claude-md-count">0</span> / 50000 字符 · 保存前自动保留上一版</span>
+                <div class="form-actions"><button id="reload-memory" class="quiet-button" type="button">重新载入</button><button class="primary-button small" type="submit">保存 CLAUDE.md</button></div>
+              </div>
+              <p id="memory-status" class="inline-status" role="status"></p>
+            </form>
+            <p class="settings-warning">不要在 CLAUDE.md 或长期记忆中填写密码、API 密钥、Cookie 或 OAuth token。这里的内容会进入所有新会话的上下文。</p>
+            <section class="memory-inventory"><div class="memory-inventory-head"><div><h2>记忆文件</h2><p>MEMORY.md 只作短索引，详细内容按类型拆分。</p></div><span id="memory-file-count" class="count-badge">0 个</span></div><div id="memory-file-list" class="settings-list" aria-live="polite"></div></section>
+          </section>
+
+          <section class="settings-panel" data-settings-panel="skills" hidden>
+            <header class="settings-heading"><div><p class="section-kicker">REUSABLE WORKFLOWS</p><h1>Skills</h1><p>创建或安装团队工作流。</p></div><span id="skill-count" class="count-badge">0 个</span></header>
+            <div class="split-create">
+              <details class="settings-create"><summary>创建 Skill</summary><form id="skill-create-form" class="settings-form"><label>名称<input name="name" pattern="[a-z0-9-]{2,64}" placeholder="release-check" required /></label><label>用途说明<input name="description" maxlength="240" placeholder="什么时候应该使用这个 Skill" required /></label><label>Skill 指令<textarea name="instructions" rows="8" maxlength="30000" placeholder="写明步骤、约束与验收标准" required></textarea></label><div class="form-actions"><button class="primary-button small" type="submit">创建 Skill</button><p class="inline-status" role="status"></p></div></form></details>
+              <details class="settings-create"><summary>从 GitHub 安装</summary><form id="skill-github-form" class="settings-form"><label>仓库<input name="repository" placeholder="owner/repo" required /></label><label>Skill 子目录<input name="subdirectory" placeholder="例如 skills/release-check；仓库根目录可留空" /></label><label>安装名称<input name="name" pattern="[a-z0-9-]{2,64}" placeholder="留空则读取 SKILL.md" /></label><div class="form-actions"><button class="primary-button small" type="submit">检查并安装</button><p class="inline-status" role="status"></p></div></form></details>
+            </div>
+            <p class="settings-warning">安装的 Skill 可能包含脚本和操作指令。仅安装已审查的仓库；删除动作不可撤销。</p>
+            <div id="managed-skill-list" class="settings-list" aria-live="polite"></div>
+          </section>
+
+          <section class="settings-panel" data-settings-panel="plugins" hidden>
+            <header class="settings-heading"><div><p class="section-kicker">CLAUDE PLUGIN DIRECTORY</p><h1>Plugins</h1><p>管理版本化能力包。</p></div><button id="refresh-plugins" class="quiet-button" type="button">刷新</button></header>
+            <form id="marketplace-form" class="marketplace-bar"><label>添加 Marketplace<input name="source" placeholder="GitHub owner/repo" required /></label><button class="primary-button small" type="submit">添加来源</button><p id="marketplace-status" class="inline-status" role="status"></p></form>
+            <div class="marketplace-line"><strong>已配置来源</strong><div id="marketplace-list" class="tag-list"><span class="muted-tag">尚未添加</span></div></div>
+            <section class="plugin-section"><h2>已安装</h2><div id="installed-plugin-list" class="settings-list"></div></section>
+            <section class="plugin-section"><h2>可安装</h2><div id="available-plugin-list" class="settings-list"></div></section>
+            <p class="settings-warning">Plugin 可能连接外部服务或运行 Hook。安装前应查看来源和权限；部分变更需要新建会话后生效。</p>
+          </section>
+
+          <section class="settings-panel" data-settings-panel="runtime" hidden>
+            <header class="settings-heading"><div><p class="section-kicker">RUNTIME POLICY</p><h1>运行与权限</h1><p>查看能力、并发与权限边界。</p></div></header>
+            <dl class="policy-list"><div><dt>执行身份</dt><dd><strong>claude-agent</strong><span>专用系统用户，无 sudo 权限</span></dd></div><div><dt>会话调度</dt><dd><strong>私有 3 路 / 单账号 2 路 / 总计 4 路</strong><span>同一会话严格串行，团队会话彼此串行</span></dd></div><div><dt>共享工作区</dt><dd><strong>/srv/claude-agent/workspace</strong><span>会话消息隔离，但服务器文件不隔离</span></dd></div></dl>
+            <div class="inventory-columns"><section><h2>MCP</h2><div id="settings-mcp-list" class="tag-list"></div></section><section><h2>Subagent</h2><div id="settings-agent-list" class="tag-list"></div></section></div>
+          </section>
+        </main>
+      </div>
+    </section>
+
+    <section id="lark-screen" class="management-screen" hidden>
+      <header class="management-topbar">
+        <div class="rail-brand"><div class="product-mark compact" aria-hidden="true"><span></span><span></span><span></span></div><strong>飞书授权中心</strong></div>
+        <button id="close-lark" class="quiet-button" type="button">返回会话</button>
+      </header>
+      <main class="settings-main identity-settings">
+        <section class="settings-panel">
+          <header class="settings-heading"><div><p class="section-kicker">LARK CLI IDENTITIES</p><h1>飞书身份</h1><p>私有会话使用会话所有者的个人授权；团队会话固定使用管理员魏宏涛的个人授权。</p></div><button id="refresh-lark" class="quiet-button" type="button">刷新状态</button></header>
+          <div class="identity-grid">
+            <article class="identity-card">
+              <p class="section-kicker">PRIVATE CONVERSATIONS</p>
+              <div class="identity-card-head"><h2>我的个人授权</h2><span id="personal-lark-badge" class="row-badge disabled">读取中</span></div>
+              <p id="personal-lark-detail">正在检查服务器上的个人身份…</p>
+              <div class="form-actions"><button id="start-lark-auth" class="primary-button small" type="button">开始授权</button><button id="logout-lark-auth" class="quiet-button danger" type="button" hidden>注销授权</button></div>
+            </article>
+            <article class="identity-card team-identity-card">
+              <p class="section-kicker">TEAM CONVERSATIONS</p>
+              <div class="identity-card-head"><h2>团队管理员授权</h2><span id="team-lark-badge" class="row-badge disabled">读取中</span></div>
+              <p id="team-lark-detail">正在检查团队身份…</p>
+              <p class="identity-footnote">团队成员在团队会话里调用飞书 CLI 时，会代表管理员个人身份执行。</p>
+            </article>
+          </div>
+          <section id="lark-auth-flow" class="auth-flow" hidden>
+            <div><p class="section-kicker">DEVICE AUTHORIZATION</p><h2>完成飞书授权</h2><p>打开下方链接或扫描二维码，在飞书页面确认授权；完成后回到这里点击“我已完成授权”。</p></div>
+            <a id="lark-auth-link" class="auth-link" href="#" target="_blank" rel="noopener noreferrer"></a>
+            <img id="lark-auth-qr" class="auth-qr" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt="飞书授权二维码" />
+            <div class="form-actions"><button id="complete-lark-auth" class="primary-button small" type="button">我已完成授权</button><span id="lark-auth-expiry" class="inline-status"></span></div>
+          </section>
+          <p id="lark-status" class="inline-status" role="status"></p>
+          <p class="settings-warning"><strong>权限提醒：</strong>团队授权是管理员个人身份。团队成员可以通过 Agent 使用该身份已授予的资源和写权限；外部消息、删除、覆盖等高风险操作仍应在会话里明确确认。</p>
+          <dl class="policy-list lark-routing"><div><dt>私有会话</dt><dd><strong>会话所有者</strong><span>每个网页账号独立授权，未授权时不能调用个人飞书资源</span></dd></div><div><dt>团队会话</dt><dd><strong>管理员魏宏涛</strong><span>无论哪位成员发起任务，都固定使用管理员授权</span></dd></div><div><dt>身份管理</dt><dd><strong>只允许网页操作</strong><span>Agent 内禁止 auth、config、profile、update 命令</span></dd></div></dl>
+        </section>
+      </main>
+    </section>
+    <dialog id="account-security-dialog" class="choice-dialog" aria-labelledby="account-security-title">
+      <form id="account-security-form" class="choice-form">
+        <header><div><p class="section-kicker">账号安全</p><h2 id="account-security-title">密码与登录设备</h2></div><button id="close-account-security" class="icon-button" type="button" aria-label="关闭账号安全">×</button></header>
+        <div class="security-fields">
+          <label>当前密码<input name="currentPassword" type="password" autocomplete="current-password" required /></label>
+          <label>新密码<input name="newPassword" type="password" autocomplete="new-password" minlength="10" required /></label>
+          <label>确认新密码<input name="confirmPassword" type="password" autocomplete="new-password" minlength="10" required /></label>
+        </div>
+        <p id="account-security-status" class="form-error" role="status"></p>
+        <footer><button id="logout-other-devices" class="text-button" type="button">登出其他设备</button><button class="primary-button small" type="submit">修改密码</button></footer>
+      </form>
+    </dialog>
+    <script src="__APP_BASE_PATH__/app.js?v=20261011-1" type="module"></script>
+  </body>
+</html>

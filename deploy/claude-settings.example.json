@@ -1,0 +1,5 @@
+{
+  "autoMemoryEnabled": true,
+  "autoMemoryDirectory": "/var/lib/shared-agent/memory",
+  "permissions": { "allow": ["WebSearch", "WebFetch"] }
+}
